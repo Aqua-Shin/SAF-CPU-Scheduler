@@ -1,5 +1,5 @@
 #ifndef TCB_H
-#define TCB_H
+#define TCB_H       //guardrails to avoid redefination 
 
 #include <ucontext.h>
 #include <stddef.h>
