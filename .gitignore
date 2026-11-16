@@ -2,3 +2,5 @@
 scheduler
 build/
 vgcore.*
+__pycache__/
+*.pyc
