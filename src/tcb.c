@@ -11,9 +11,11 @@
 #include <errno.h>
 #include <signal.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 
 #if defined(__has_include)
@@ -52,6 +54,17 @@ static _Atomic long g_total_switches = 0;
 static _Atomic long g_total_preemptions = 0;
 static _Atomic long g_total_deferred = 0;
 static size_t g_max_queue_len = 0;
+static _Atomic int g_trace_enabled = 0;
+
+void saf_set_trace(int enabled) {
+    atomic_store_explicit(&g_trace_enabled, enabled ? 1 : 0, memory_order_release);
+}
+
+static long long trace_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
 
 #ifndef NDEBUG
 long g_tcb_destroyed = 0;
@@ -206,7 +219,17 @@ static void sched_loop(void) {
         preempt_pending = 0;
         g_switches++;
 
+        int tracing = atomic_load_explicit(&g_trace_enabled, memory_order_relaxed);
+        if (tracing) {
+            printf("TRACE,%lld,%d,%d,START\n", trace_now_ns(), my_id, t->id);
+        }
+
         swapcontext(&sched_ctx, &t->ctx);
+
+        if (tracing) {
+            const char *ev = (t->state == SAF_FINISHED) ? "EXIT" : "YIELD";
+            printf("TRACE,%lld,%d,%d,%s\n", trace_now_ns(), my_id, t->id, ev);
+        }
 
         current = NULL;
         if (t->state == SAF_READY) {

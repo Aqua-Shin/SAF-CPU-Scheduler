@@ -23,6 +23,7 @@ int  scheduler_run(void);                            /* 0 when all threads finis
 typedef struct { long switches, preemptions, deferred, ticks, max_queue_len;
                  long light_count, heavy_count; } saf_stats_t;
 void saf_get_stats(saf_stats_t *out);
+void saf_set_trace(int enabled);
 
 #ifdef __cplusplus
 }

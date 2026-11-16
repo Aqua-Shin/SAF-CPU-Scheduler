@@ -7,6 +7,7 @@
 
 static int g_infinite = 0;
 static int g_max_iterations = 4;
+static int g_num_threads = 3;
 
 static void worker(void *arg) {
     int id = *(int *)arg;
@@ -32,8 +33,11 @@ static void spin_worker(void *arg) {
 }
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s [-w|--workers N] [-i|--infinite] [iterations]\n", prog);
-    fprintf(stderr, "       %s [-w|--workers N] --spin N\n", prog);
+    fprintf(stderr, "Usage: %s [-w|--workers N] [-n|--threads N] [-i|--infinite] [-t|--trace] [iterations]\n", prog);
+    fprintf(stderr, "       %s [-w|--workers N] [-t|--trace] --spin N\n", prog);
+    fprintf(stderr, "  -w, --workers N   Number of kernel worker threads (SAF_WORKERS)\n");
+    fprintf(stderr, "  -n, --threads N   Number of user threads to spawn (default: 3)\n");
+    fprintf(stderr, "  -t, --trace       Emit TRACE,... lines for viz.py\n");
 }
 
 static void print_stats(void) {
@@ -92,6 +96,22 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        if (strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "--threads") == 0) {
+            if (i + 1 >= argc) {
+                usage(argv[0]);
+                return 1;
+            }
+            char *end = NULL;
+            long n = strtol(argv[i + 1], &end, 10);
+            if (end == argv[i + 1] || *end != '\0' || n <= 0) {
+                usage(argv[0]);
+                return 1;
+            }
+            g_num_threads = (int)n;
+            i++;
+            continue;
+        }
+
         if (strcmp(argv[i], "--spin") == 0) {
             if (i + 1 >= argc) {
                 usage(argv[0]);
@@ -113,6 +133,11 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        if (strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--trace") == 0) {
+            saf_set_trace(1);
+            continue;
+        }
+
         char *end = NULL;
         long val = strtol(argv[i], &end, 10);
         if (end == argv[i] || *end != '\0' || val <= 0) {
@@ -131,25 +156,33 @@ int main(int argc, char *argv[]) {
     printf("==================================================\n");
     const char *workers_env = getenv("SAF_WORKERS");
     printf("[Config] Workers: %s\n", workers_env ? workers_env : "1 (default)");
+    printf("[Config] User threads: %d\n", g_num_threads);
     if (g_infinite) {
         printf("[Config] Running indefinitely (Ctrl+C to stop)\n");
     } else {
         printf("[Config] Running %d iterations per thread\n", g_max_iterations);
     }
 
-    int ids[3] = {1, 2, 3};
+    int *ids = calloc((size_t)g_num_threads, sizeof(int));
+    if (ids == NULL) {
+        fprintf(stderr, "out of memory\n");
+        return 1;
+    }
 
-    printf("[Init] Registering 3 cooperative user threads...\n");
-    for (int i = 0; i < 3; i++) {
+    printf("[Init] Registering %d cooperative user threads...\n", g_num_threads);
+    for (int i = 0; i < g_num_threads; i++) {
+        ids[i] = i + 1;
         int rc = thread_create(worker, &ids[i]);
         if (rc < 0) {
             fprintf(stderr, "thread_create failed: %d\n", rc);
+            free(ids);
             return 1;
         }
     }
 
     printf("[Run] Starting scheduler...\n");
     int rc = scheduler_run();
+    free(ids);
     if (rc < 0) {
         fprintf(stderr, "scheduler_run failed: %d\n", rc);
         return 1;
